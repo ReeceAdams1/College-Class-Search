@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>College & Class Selector</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div class="container mx-auto bg-white dark:bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-lg">
+        <h1 class="text-3xl font-bold mb-6 text-center text-blue-600 dark:text-blue-400">College Articulation Finder</h1>
+
+        <div class="mb-6 searchable-dropdown-container relative"> <!-- Added relative positioning -->
+            <label for="college-search-input" class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">1. Type to search and select a college:</label>
+            <input type="text" id="college-search-input" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-3 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500" placeholder="Start typing college name...">
+            <div id="college-list-dropdown" class="college-list hidden absolute z-10 w-full mt-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                <!-- Items will be populated by JavaScript -->
+            </div>
+        </div>
+
+        <div id="class-input-container" class="mb-4 hidden">
+            <label for="class-name-input" class="block mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">2. Enter class name (e.g., ENGL 101):</label>
+            <div class="flex items-center space-x-2">
+                <input type="text" id="class-name-input" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-3 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500" placeholder="e.g., MATH 200, HIST 1A">
+                <button id="find-key-button" class="px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium whitespace-nowrap">Find Articulation</button>
+            </div>
+        </div>
+        
+        <div id="agreement-key-result-container" class="mt-4 hidden">
+            </div>
+
+        <div id="articulated-courses-container" class="mt-6 hidden">
+            <h3 class="text-xl font-semibold mb-3 text-gray-800 dark:text-gray-200">Articulated Courses:</h3>
+            <div id="articulated-courses-list" class="space-y-3">
+                <!-- Articulated courses will be populated here -->
+            </div>
+            <div id="articulated-courses-message" class="mt-2 text-sm">
+                 <!-- Messages related to articulated courses -->
+            </div>
+            <!-- "Load 10 more" button -->
+            <div class="mt-4 text-center">
+                <button id="load-more-colleges-button" class="hidden px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm font-medium whitespace-nowrap">
+                    Load 10 More
+                </button>
+            </div>
+        </div>
+
+        <div id="message-area" class="mt-4 text-sm text-center">
+            </div>
+    </div>
+
+     <script type="module" src="script.js"></script>
+</body>
+</html>
