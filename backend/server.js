@@ -1,5 +1,4 @@
 const express = require('express');
-const axios = require('axios');
 const cors = require('cors');
 const path = require('path');
 
@@ -23,8 +22,8 @@ async function getAssistSession() {
         return sessionCache;
     }
 
-    const response = await axios.get(ASSIST_ORIGIN, { withCredentials: false });
-    const rawCookies = response.headers['set-cookie'] || [];
+    const response = await fetch(ASSIST_ORIGIN);
+    const rawCookies = response.headers.getSetCookie();
 
     // Parse cookies into a single Cookie header string
     const cookieMap = {};
@@ -58,31 +57,30 @@ function assistHeaders(session) {
     };
 }
 
+async function assistFetch(assistUrl) {
+    const session = await getAssistSession();
+    const response = await fetch(assistUrl, { headers: assistHeaders(session) });
+    if (response.status === 400 || response.status === 401) {
+        // Session may have expired — refresh once and retry
+        sessionCache = { cookies: null, xsrfToken: null, fetchedAt: 0 };
+        const fresh = await getAssistSession();
+        return fetch(assistUrl, { headers: assistHeaders(fresh) });
+    }
+    return response;
+}
+
 async function proxyGet(assistUrl, res) {
     try {
-        const session = await getAssistSession();
-        const response = await axios.get(assistUrl, { headers: assistHeaders(session) });
-        res.json(response.data);
+        const response = await assistFetch(assistUrl);
+        if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            return res.status(response.status).json(body);
+        }
+        const data = await response.json();
+        res.json(data);
     } catch (error) {
-        // If 400/401, try refreshing the session once
-        if (error.response && (error.response.status === 400 || error.response.status === 401)) {
-            sessionCache = { cookies: null, xsrfToken: null, fetchedAt: 0 };
-            try {
-                const session = await getAssistSession();
-                const retry = await axios.get(assistUrl, { headers: assistHeaders(session) });
-                return res.json(retry.data);
-            } catch (retryErr) {
-                console.error('Retry failed:', retryErr.message);
-            }
-        }
         console.error('Assist API error:', error.message);
-        if (error.response) {
-            res.status(error.response.status).json(error.response.data);
-        } else if (error.request) {
-            res.status(504).json({ message: 'No response from Assist API' });
-        } else {
-            res.status(500).json({ message: 'Failed to contact Assist API' });
-        }
+        res.status(500).json({ message: 'Failed to contact Assist API' });
     }
 }
 
