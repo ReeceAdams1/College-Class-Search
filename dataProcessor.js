@@ -72,6 +72,44 @@ function getSendingCourseOptions(sendingArticulation) {
 }
 
 /**
+ * Returns all articulations for a given subject prefix (department search).
+ * @param {Array} articulationsDataParsed - Parsed articulation JSON.
+ * @param {string} subjectPrefix - Department code (e.g., "MATH").
+ * @returns {Array<{receivingCourseLabel: string, articulationOptionStrings: Array<string>, topLevelConjunction: string|null}>}
+ */
+export function processAllArticulationsForSubject(articulationsDataParsed, subjectPrefix) {
+    const results = [];
+    for (const articulation of articulationsDataParsed) {
+        let receivingCourseLabel = null;
+        let currentSendingArticulation = null;
+
+        if (articulation.type === 'Course' && articulation.course) {
+            const c = articulation.course;
+            if (c.prefix && c.prefix.toUpperCase() === subjectPrefix.toUpperCase()) {
+                receivingCourseLabel = `${c.prefix} ${c.courseNumber}`;
+                currentSendingArticulation = articulation.sendingArticulation;
+            }
+        } else if (articulation.type === 'Series' && articulation.series) {
+            const seriesCourses = articulation.series.courses || [];
+            const hasMatch = seriesCourses.some(c => c.prefix && c.prefix.toUpperCase() === subjectPrefix.toUpperCase());
+            if (hasMatch) {
+                receivingCourseLabel = articulation.series.name ||
+                    seriesCourses.map(c => `${c.prefix} ${c.courseNumber}`).join(' & ');
+                currentSendingArticulation = articulation.sendingArticulation;
+            }
+        }
+
+        if (currentSendingArticulation) {
+            const { articulationOptionStrings, topLevelConjunction } = getSendingCourseOptions(currentSendingArticulation);
+            if (articulationOptionStrings.length > 0) {
+                results.push({ receivingCourseLabel, articulationOptionStrings, topLevelConjunction });
+            }
+        }
+    }
+    return results;
+}
+
+/**
  * Processes raw articulation data to extract formatted strings and conjunction.
  * @param {Array} articulationsDataParsed - Parsed articulation JSON.
  * @param {string} inputSubjectPrefix - The derived subject prefix from user input (e.g., "BIOLOGY").

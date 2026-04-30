@@ -11,4 +11,5 @@ export const messageArea = document.getElementById('message-area');
 export const articulatedCoursesContainerEl = document.getElementById('articulated-courses-container');
 export const articulatedCoursesListEl = document.getElementById('articulated-courses-list');
 export const articulatedCoursesMessageEl = document.getElementById('articulated-courses-message');
-export const loadMoreCollegesButton = document.getElementById('load-more-colleges-button'); // Added new button
+export const loadMoreCollegesButton = document.getElementById('load-more-colleges-button');
+export const courseListDropdown = document.getElementById('course-list-dropdown');

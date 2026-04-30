@@ -15,17 +15,36 @@ const ASSIST_ORIGIN = 'https://assist.org';
 // Cached session tokens from assist.org
 let sessionCache = { cookies: null, xsrfToken: null, fetchedAt: 0 };
 const SESSION_TTL_MS = 20 * 60 * 1000; // 20 minutes
+let sessionRefreshPromise = null; // mutex: only one refresh at a time
+
+// Rate-limit guard: queue all outbound assist.org fetches so they
+// fire at most one every ASSIST_INTERVAL ms, preventing 429s.
+const ASSIST_INTERVAL = 200;
+let assistQueue = Promise.resolve();
+function queuedFetch(url, options) {
+    assistQueue = assistQueue.then(
+        () => new Promise(r => setTimeout(r, ASSIST_INTERVAL)).then(() => fetch(url, options))
+    );
+    return assistQueue;
+}
 
 async function getAssistSession() {
     const now = Date.now();
     if (sessionCache.xsrfToken && (now - sessionCache.fetchedAt) < SESSION_TTL_MS) {
         return sessionCache;
     }
+    if (!sessionRefreshPromise) {
+        sessionRefreshPromise = _fetchNewSession().finally(() => {
+            sessionRefreshPromise = null;
+        });
+    }
+    return sessionRefreshPromise;
+}
 
+async function _fetchNewSession() {
     const response = await fetch(ASSIST_ORIGIN);
     const rawCookies = response.headers.getSetCookie();
 
-    // Parse cookies into a single Cookie header string
     const cookieMap = {};
     for (const raw of rawCookies) {
         const [pair] = raw.split(';');
@@ -36,10 +55,7 @@ async function getAssistSession() {
         cookieMap[name] = value;
     }
 
-    const cookieHeader = Object.entries(cookieMap)
-        .map(([k, v]) => `${k}=${v}`)
-        .join('; ');
-
+    const cookieHeader = Object.entries(cookieMap).map(([k, v]) => `${k}=${v}`).join('; ');
     const xsrfToken = cookieMap['X-XSRF-TOKEN'];
     if (!xsrfToken) throw new Error('Could not obtain XSRF token from assist.org');
 
@@ -57,14 +73,18 @@ function assistHeaders(session) {
     };
 }
 
-async function assistFetch(assistUrl) {
+async function assistFetch(assistUrl, attempt = 0) {
     const session = await getAssistSession();
-    const response = await fetch(assistUrl, { headers: assistHeaders(session) });
+    const response = await queuedFetch(assistUrl, { headers: assistHeaders(session) });
+    if (response.status === 429 && attempt < 3) {
+        const delay = Math.min(parseInt(response.headers.get('Retry-After') || '2', 10) * 1000, 8000);
+        await new Promise(r => setTimeout(r, delay));
+        return assistFetch(assistUrl, attempt + 1);
+    }
     if (response.status === 400 || response.status === 401) {
-        // Session may have expired — refresh once and retry
         sessionCache = { cookies: null, xsrfToken: null, fetchedAt: 0 };
         const fresh = await getAssistSession();
-        return fetch(assistUrl, { headers: assistHeaders(fresh) });
+        return queuedFetch(assistUrl, { headers: assistHeaders(fresh) });
     }
     return response;
 }
@@ -110,6 +130,37 @@ app.get('/api/articulation/Agreements', (req, res) => {
     }
     console.log('Proxying: /api/articulation/Agreements');
     proxyGet(`${ASSIST_API_BASE_URL}/articulation/Agreements?Key=${Key}`, res);
+});
+
+app.get('/api/courses', async (req, res) => {
+    const { receivingInstitutionId, academicYearId } = req.query;
+    if (!receivingInstitutionId || !academicYearId) {
+        return res.status(400).json({ message: 'Missing required parameters' });
+    }
+    try {
+        const instResponse = await assistFetch(`${ASSIST_API_BASE_URL}/institutions`);
+        if (!instResponse.ok) return res.status(502).json({ message: 'Failed to fetch institutions' });
+        const institutions = await instResponse.json();
+
+        const cc = institutions.find(i => i.isCommunityCollege && String(i.id) !== String(receivingInstitutionId));
+        if (!cc) return res.json([]);
+
+        const agreeResponse = await assistFetch(
+            `${ASSIST_API_BASE_URL}/agreements?receivingInstitutionId=${receivingInstitutionId}&sendingInstitutionId=${cc.id}&academicYearId=${academicYearId}&categoryCode=prefix`
+        );
+        if (!agreeResponse.ok) return res.json([]);
+        const agreeData = await agreeResponse.json();
+        if (!agreeData.reports?.length) return res.json([]);
+
+        const subjects = agreeData.reports
+            .filter(r => r.label)
+            .map(r => ({ code: r.label.trim(), title: '' }))
+            .sort((a, b) => a.code.localeCompare(b.code));
+        res.json(subjects);
+    } catch (error) {
+        console.error('Error fetching courses:', error.message);
+        res.status(500).json({ message: 'Failed to fetch courses' });
+    }
 });
 
 app.use((req, res) => {

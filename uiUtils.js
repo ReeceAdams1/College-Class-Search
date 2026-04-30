@@ -133,6 +133,47 @@ export function displayArticulatedCourses(courseOptionStrings, sendingInstitutio
 }
 
 /**
+ * Displays all department articulations for a single sending institution.
+ * @param {Array<{receivingCourseLabel: string, articulationOptionStrings: Array<string>, topLevelConjunction: string|null}>} departmentResults
+ * @param {string} sendingInstitutionName
+ * @param {HTMLElement} listElement
+ */
+export function displayDepartmentArticulations(departmentResults, sendingInstitutionName, listElement) {
+    if (!listElement || !departmentResults || departmentResults.length === 0) return;
+
+    const styledConjunctionClasses = 'mx-1 px-2 py-0.5 bg-blue-500 text-white rounded text-xs font-semibold';
+
+    const rowsHtml = departmentResults.map(({ receivingCourseLabel, articulationOptionStrings, topLevelConjunction }) => {
+        const processedOptions = articulationOptionStrings.map(option => {
+            let s = option;
+            if (s.includes(' %%AND%% ')) s = s.replace(/ %%AND%% /g, ` <span class="${styledConjunctionClasses}">AND</span> `);
+            if (s.includes(' %%OR%% ')) s = `(${s.replace(/ %%OR%% /g, ` <span class="${styledConjunctionClasses}">OR</span> `)})`;
+            return s;
+        });
+
+        let sendingHtml = processedOptions[0] || '';
+        if (processedOptions.length > 1) {
+            const lc = topLevelConjunction ? topLevelConjunction.toLowerCase() : null;
+            const conjText = lc === 'or' ? 'OR' : lc === 'and' ? 'AND' : 'AND/OR';
+            const conjClass = (lc === 'or' || lc === 'and') ? styledConjunctionClasses : 'mx-1 italic text-sm';
+            for (let i = 1; i < processedOptions.length; i++) {
+                sendingHtml += ` <span class="${conjClass}">${conjText}</span> ${processedOptions[i]}`;
+            }
+        }
+
+        return `<div class="text-sm py-1 border-t border-gray-200 dark:border-gray-600 first:border-t-0"><span class="font-medium text-gray-700 dark:text-gray-300 mr-1">${receivingCourseLabel}:</span>${sendingHtml}</div>`;
+    }).join('');
+
+    const courseDiv = document.createElement('div');
+    courseDiv.className = 'p-3 bg-gray-50 dark:bg-gray-700 rounded-md shadow-sm border border-gray-200 dark:border-gray-600';
+    courseDiv.innerHTML = `
+        <h4 class="text-md font-semibold text-blue-600 dark:text-blue-400 mb-1">${sendingInstitutionName}</h4>
+        ${rowsHtml}
+    `;
+    listElement.appendChild(courseDiv);
+}
+
+/**
  * Filters and displays colleges in the custom dropdown based on search term.
  * @param {string} searchTerm - The current search term.
  * @param {Array} allInstitutions - The complete list of institutions.
@@ -182,6 +223,47 @@ export function updateCollegeDropdownUI(searchTerm, allInstitutions, collegeSear
         }
     }
     collegeListDropdownElement.classList.toggle('hidden', !showDropdown);
+}
+
+/**
+ * Filters and displays courses in the dropdown based on search term.
+ */
+export function updateCourseDropdownUI(searchTerm, allCourses, courseInputElement, courseDropdownElement, selectCourseCallback) {
+    courseDropdownElement.innerHTML = '';
+    let showDropdown = false;
+
+    if (!searchTerm) {
+        if (document.activeElement === courseInputElement && allCourses.length > 0) {
+            const prompt = document.createElement('div');
+            prompt.className = 'px-4 py-2 text-sm text-gray-500 dark:text-gray-400';
+            prompt.textContent = 'Type to filter courses...';
+            courseDropdownElement.appendChild(prompt);
+            showDropdown = true;
+        }
+    } else {
+        const term = searchTerm.toLowerCase();
+        const filtered = allCourses.filter(c =>
+            c.code.toLowerCase().includes(term) ||
+            (c.title && c.title.toLowerCase().includes(term))
+        ).slice(0, 50);
+
+        if (filtered.length === 0) {
+            const none = document.createElement('div');
+            none.className = 'px-4 py-2 text-sm text-gray-500 dark:text-gray-400';
+            none.textContent = 'No courses match your search.';
+            courseDropdownElement.appendChild(none);
+        } else {
+            filtered.forEach(course => {
+                const item = document.createElement('div');
+                item.className = 'px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer';
+                item.textContent = course.title ? `${course.code} — ${course.title}` : course.code;
+                item.addEventListener('click', () => selectCourseCallback(course.code));
+                courseDropdownElement.appendChild(item);
+            });
+        }
+        showDropdown = true;
+    }
+    courseDropdownElement.classList.toggle('hidden', !showDropdown);
 }
 
 /**

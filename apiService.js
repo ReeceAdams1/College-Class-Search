@@ -56,3 +56,14 @@ export async function fetchArticulationDetails(reportKey) {
     const apiUrl = `${BACKEND_API_BASE_URL}/articulation/Agreements?Key=${reportKey}`;
     return fetchData(apiUrl, 'Backend API fetch failed (articulation details)');
 }
+
+/**
+ * Fetches the list of courses available at a receiving institution.
+ * @param {string|number} receivingInstitutionId ID of the receiving institution.
+ * @param {string|number} academicYearId ID of the academic year.
+ * @returns {Promise<Array<{code: string, title: string}>>}
+ */
+export async function fetchCoursesForCollege(receivingInstitutionId, academicYearId) {
+    const apiUrl = `${BACKEND_API_BASE_URL}/courses?receivingInstitutionId=${receivingInstitutionId}&academicYearId=${academicYearId}`;
+    return fetchData(apiUrl, 'Backend API fetch failed (courses)');
+}
