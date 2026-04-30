@@ -1,100 +1,123 @@
-// console.log('[Debug Backend] server.js execution started'); 
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
+const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 3001; // Backend will run on this port
+const PORT = process.env.PORT || 3001;
 
-// Middleware
-app.use(cors()); // Enable CORS for all routes
-app.use(express.json()); // To parse JSON request bodies
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, '..')));
 
-// Base URL for the Assist API
 const ASSIST_API_BASE_URL = 'https://assist.org/api';
+const ASSIST_ORIGIN = 'https://assist.org';
 
-// Test route at the root
-app.get('/', (req, res) => {
-  // console.log('[Debug Backend] Request to / received');
-  res.send('Backend server is alive!');
-});
+// Cached session tokens from assist.org
+let sessionCache = { cookies: null, xsrfToken: null, fetchedAt: 0 };
+const SESSION_TTL_MS = 20 * 60 * 1000; // 20 minutes
 
-// Proxy route for institutions
-app.get('/api/institutions', async (req, res) => {
-    // console.log('[Debug Backend] Original /api/institutions route hit.');
+async function getAssistSession() {
+    const now = Date.now();
+    if (sessionCache.xsrfToken && (now - sessionCache.fetchedAt) < SESSION_TTL_MS) {
+        return sessionCache;
+    }
+
+    const response = await axios.get(ASSIST_ORIGIN, { withCredentials: false });
+    const rawCookies = response.headers['set-cookie'] || [];
+
+    // Parse cookies into a single Cookie header string
+    const cookieMap = {};
+    for (const raw of rawCookies) {
+        const [pair] = raw.split(';');
+        const eqIdx = pair.indexOf('=');
+        if (eqIdx === -1) continue;
+        const name = pair.slice(0, eqIdx).trim();
+        const value = pair.slice(eqIdx + 1).trim();
+        cookieMap[name] = value;
+    }
+
+    const cookieHeader = Object.entries(cookieMap)
+        .map(([k, v]) => `${k}=${v}`)
+        .join('; ');
+
+    const xsrfToken = cookieMap['X-XSRF-TOKEN'];
+    if (!xsrfToken) throw new Error('Could not obtain XSRF token from assist.org');
+
+    sessionCache = { cookies: cookieHeader, xsrfToken, fetchedAt: Date.now() };
+    return sessionCache;
+}
+
+function assistHeaders(session) {
+    return {
+        'Accept': 'application/json, text/plain, */*',
+        'Referer': `${ASSIST_ORIGIN}/`,
+        'Origin': ASSIST_ORIGIN,
+        'Cookie': session.cookies,
+        'X-XSRF-TOKEN': session.xsrfToken,
+    };
+}
+
+async function proxyGet(assistUrl, res) {
     try {
-        const assistApiUrl = `${ASSIST_API_BASE_URL}/institutions`;
-        console.log(`Backend proxying to: ${assistApiUrl}`); // Keep this for operational logging
-        
-        const response = await axios.get(assistApiUrl);
-        
-        // console.log(`[Debug Backend] Successfully fetched from Assist API. Status: ${response.status}`);
+        const session = await getAssistSession();
+        const response = await axios.get(assistUrl, { headers: assistHeaders(session) });
         res.json(response.data);
-
     } catch (error) {
-        console.error('Error proxying to Assist API (institutions):', error.message); // Keep error logs
+        // If 400/401, try refreshing the session once
+        if (error.response && (error.response.status === 400 || error.response.status === 401)) {
+            sessionCache = { cookies: null, xsrfToken: null, fetchedAt: 0 };
+            try {
+                const session = await getAssistSession();
+                const retry = await axios.get(assistUrl, { headers: assistHeaders(session) });
+                return res.json(retry.data);
+            } catch (retryErr) {
+                console.error('Retry failed:', retryErr.message);
+            }
+        }
+        console.error('Assist API error:', error.message);
         if (error.response) {
-            // console.error('[Debug Backend] Error response from Assist API:', error.response.status, error.response.data);
             res.status(error.response.status).json(error.response.data);
         } else if (error.request) {
-            // console.error('[Debug Backend] No response received from Assist API. Request made but no response.');
-            res.status(504).json({ message: 'No response from Assist API (gateway timeout)' });
+            res.status(504).json({ message: 'No response from Assist API' });
         } else {
-            // console.error('[Debug Backend] Error setting up request to Assist API:', error.message);
-            res.status(500).json({ message: 'Failed to fetch data from Assist API (setup issue)' });
+            res.status(500).json({ message: 'Failed to contact Assist API' });
         }
     }
+}
+
+app.get('/', (req, res) => {
+    res.redirect('/Website.html');
 });
 
-// Proxy route for agreements
-app.get('/api/agreements', async (req, res) => {
+app.get('/api/institutions', (req, res) => {
+    console.log('Proxying: /api/institutions');
+    proxyGet(`${ASSIST_API_BASE_URL}/institutions`, res);
+});
+
+app.get('/api/agreements', (req, res) => {
     const { receivingInstitutionId, sendingInstitutionId, academicYearId, categoryCode } = req.query;
     if (!receivingInstitutionId || !sendingInstitutionId || !academicYearId || !categoryCode) {
         return res.status(400).json({ message: 'Missing required query parameters for agreements' });
     }
-    try {
-        const assistApiUrl = `${ASSIST_API_BASE_URL}/agreements?receivingInstitutionId=${receivingInstitutionId}&sendingInstitutionId=${sendingInstitutionId}&academicYearId=${academicYearId}&categoryCode=${categoryCode}`;
-        console.log(`Backend proxying to: ${assistApiUrl}`); // Keep this for operational logging
-        const response = await axios.get(assistApiUrl);
-        res.json(response.data);
-    } catch (error) {
-        console.error('Error proxying to Assist API (agreements):', error.message); // Keep error logs
-        if (error.response) {
-            res.status(error.response.status).json(error.response.data);
-        } else {
-            res.status(500).json({ message: 'Failed to fetch data from Assist API (agreements)' });
-        }
-    }
+    const url = `${ASSIST_API_BASE_URL}/agreements?receivingInstitutionId=${receivingInstitutionId}&sendingInstitutionId=${sendingInstitutionId}&academicYearId=${academicYearId}&categoryCode=${categoryCode}`;
+    console.log('Proxying: /api/agreements');
+    proxyGet(url, res);
 });
 
-// Proxy route for articulation details
-app.get('/api/articulation/Agreements', async (req, res) => {
+app.get('/api/articulation/Agreements', (req, res) => {
     const { Key } = req.query;
     if (!Key) {
         return res.status(400).json({ message: 'Missing required query parameter: Key' });
     }
-    try {
-        const assistApiUrl = `${ASSIST_API_BASE_URL}/articulation/Agreements?Key=${Key}`;
-        console.log(`Backend proxying to: ${assistApiUrl}`); // Keep this for operational logging
-        const response = await axios.get(assistApiUrl);
-        res.json(response.data);
-    } catch (error) {
-        console.error('Error proxying to Assist API (articulation details):', error.message); // Keep error logs
-        if (error.response) {
-            res.status(error.response.status).json(error.response.data);
-        } else {
-            res.status(500).json({ message: 'Failed to fetch data from Assist API (articulation details)' });
-        }
-    }
+    console.log('Proxying: /api/articulation/Agreements');
+    proxyGet(`${ASSIST_API_BASE_URL}/articulation/Agreements?Key=${Key}`, res);
 });
 
-// Catch-all route for debugging 404s - place this LAST
-app.use((req, res, next) => {
-  // console.log(`[Debug Backend] Catch-all: Route not found: ${req.method} ${req.originalUrl}`);
-  res.status(404).send("Backend couldn't find that route.");
+app.use((req, res) => {
+    res.status(404).send("Backend couldn't find that route.");
 });
 
-// console.log('[Debug Backend] About to call app.listen');
 app.listen(PORT, () => {
     console.log(`Backend server running on http://localhost:${PORT}`);
 });
